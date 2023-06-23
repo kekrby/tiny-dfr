@@ -101,7 +101,7 @@ impl FunctionLayer {
         let top = (DFR_HEIGHT as f64) * 0.85;
         c.set_source_rgb(0.0, 0.0, 0.0);
         c.paint().unwrap();
-        c.select_font_face("sans-serif", FontSlant::Normal, FontWeight::Bold);
+        c.select_font_face("sans-serif", FontSlant::Normal, FontWeight::Normal);
         c.set_font_size(32.0);
         for (i, button) in self.buttons.iter().enumerate() {
             let left_edge = i as f64 * (button_width + spacing_width);
