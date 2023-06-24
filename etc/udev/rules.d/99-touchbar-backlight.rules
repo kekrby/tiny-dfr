@@ -1,2 +1,3 @@
 # The backlight is managed by tiny-df. Tell systemd to leave it alone
+SUBSYSTEM=="backlight", KERNEL=="appletb_backlight", DRIVERS=="hid-appletb-bl", ENV{SYSTEMD_READY}="0"
 SUBSYSTEM=="backlight", KERNEL=="228200000.display-pipe.0", DRIVERS=="panel-summit", ENV{SYSTEMD_READY}="0"
