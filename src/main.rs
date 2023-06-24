@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, read_to_string},
     os::{
         fd::AsRawFd,
         unix::{io::OwnedFd, fs::OpenOptionsExt}
@@ -27,6 +27,7 @@ use input_linux::{uinput::UInputHandle, EventKind, Key, SynchronizeKind};
 use input_linux_sys::{uinput_setup, input_id, timeval, input_event};
 use nix::poll::{poll, PollFd, PollFlags};
 use privdrop::PrivDrop;
+use serde::Deserialize;
 
 mod backlight;
 mod display;
@@ -195,7 +196,34 @@ fn toggle_key<F>(uinput: &mut UInputHandle<F>, code: Key, value: i32) where F: A
     emit(uinput, EventKind::Synchronize, SynchronizeKind::Report as u16, 0);
 }
 
+#[repr(usize)]
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum LayerType {
+    Function,
+    Special,
+}
+
+#[derive(Deserialize)]
+struct UiConfig {
+    primary_layer: LayerType,
+    secondary_layer: LayerType,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    ui: UiConfig,
+}
+
+impl Config {
+    fn from_file(path: &str) -> Result<Self> {
+        toml::from_str(&read_to_string(path)?)
+            .map_err(anyhow::Error::from)
+    }
+}
+
 fn main() {
+    let config = Config::from_file("/etc/tiny-dfr.conf").unwrap();
     let mut uinput = UInputHandle::new(OpenOptions::new().write(true).open("/dev/uinput").unwrap());
     let mut backlight = BacklightManager::new();
 
@@ -210,7 +238,7 @@ fn main() {
         .unwrap_or_else(|e| { panic!("Failed to drop privileges: {}", e) });
 
     let mut surface = ImageSurface::create(Format::ARgb32, DFR_HEIGHT, DFR_WIDTH).unwrap();
-    let mut active_layer = 0;
+    let mut active_layer = config.ui.primary_layer as usize;
     let layers = [
         FunctionLayer {
             buttons: vec![
@@ -303,8 +331,8 @@ fn main() {
                 Event::Keyboard(KeyboardEvent::Key(key)) => {
                     if key.key() == Key::Fn as u32 {
                         let new_layer = match key.key_state() {
-                            KeyState::Pressed => 1,
-                            KeyState::Released => 0
+                            KeyState::Pressed => config.ui.secondary_layer as usize,
+                            KeyState::Released => config.ui.primary_layer as usize
                         };
                         if active_layer != new_layer {
                             active_layer = new_layer;
