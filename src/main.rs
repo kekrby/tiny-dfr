@@ -288,6 +288,7 @@ fn main() {
     let mut layers = [
         FunctionLayer {
             buttons: vec![
+                Button::new_text("esc", Key::Esc),
                 Button::new_text("F1", Key::F1),
                 Button::new_text("F2", Key::F2),
                 Button::new_text("F3", Key::F3),
@@ -304,6 +305,7 @@ fn main() {
         },
         FunctionLayer {
             buttons: vec![
+                Button::new_text("esc", Key::Esc),
                 Button::new_svg("brightness_low", Key::BrightnessDown),
                 Button::new_svg("brightness_high", Key::BrightnessUp),
                 Button::new_svg("mic_off", Key::MicMute),
@@ -326,6 +328,12 @@ fn main() {
     let fb_info = drm.fb_info().unwrap();
     let pitch = fb_info.pitch();
     let cpp = fb_info.bpp() / 8;
+
+    if width < 2170 {
+        for layer in &mut layers {
+            layer.buttons.remove(0);
+        }
+    }
 
     let mut surface = ImageSurface::create(Format::ARgb32, height as i32, width as i32).unwrap();
     let mut input_tb = Libinput::new_with_udev(Interface);
