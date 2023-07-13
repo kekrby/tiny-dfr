@@ -48,19 +48,27 @@ enum ButtonImage {
 
 struct Button {
     image: ButtonImage,
+    changed: bool,
+    active: bool,
     action: Key
 }
 
 impl Button {
     fn new_text(text: &'static str, action: Key) -> Button {
         Button {
-            action, image: ButtonImage::Text(text)
+            action,
+            active: false,
+            changed: false,
+            image: ButtonImage::Text(text)
         }
     }
     fn new_svg(path: &'static str, action: Key) -> Button {
         let svg = Loader::new().read_path(format!("/usr/share/tiny-dfr/{}.svg", path)).unwrap();
         Button {
-            action, image: ButtonImage::Svg(svg)
+            action,
+            active: false,
+            changed: false,
+            image: ButtonImage::Svg(svg)
         }
     }
     fn render(&self, c: &Context, left_edge: f64, button_width: f64) {
@@ -84,6 +92,14 @@ impl Button {
             }
         }
     }
+    fn set_active<F>(&mut self, uinput: &mut UInputHandle<F>, active: bool) where F: AsRawFd {
+        if self.active != active {
+            self.active = active;
+            self.changed = true;
+
+            toggle_key(uinput, self.action, active as i32);
+        }
+    }
 }
 
 struct FunctionLayer {
@@ -91,8 +107,9 @@ struct FunctionLayer {
 }
 
 impl FunctionLayer {
-    fn draw(&self, surface: &Surface, active_buttons: &[bool]) {
+    fn draw(&mut self, surface: &Surface, complete_redraw: bool) -> Vec<ClipRect> {
         let c = Context::new(&surface).unwrap();
+        let mut modified_regions = Vec::new();
         c.translate(DFR_HEIGHT as f64, 0.0);
         c.rotate((90.0f64).to_radians());
         let button_width = DFR_WIDTH as f64 / (self.buttons.len() + 1) as f64;
@@ -100,13 +117,24 @@ impl FunctionLayer {
         let radius = 8.0f64;
         let bot = (DFR_HEIGHT as f64) * 0.15;
         let top = (DFR_HEIGHT as f64) * 0.85;
-        c.set_source_rgb(0.0, 0.0, 0.0);
-        c.paint().unwrap();
+        if complete_redraw {
+            c.set_source_rgb(0.0, 0.0, 0.0);
+            c.paint().unwrap();
+        }
         c.select_font_face("sans-serif", FontSlant::Normal, FontWeight::Normal);
         c.set_font_size(32.0);
-        for (i, button) in self.buttons.iter().enumerate() {
+        for (i, button) in self.buttons.iter_mut().enumerate() {
+            if !button.changed && !complete_redraw {
+                continue;
+            };
+
             let left_edge = i as f64 * (button_width + spacing_width);
-            let color = if active_buttons[i] { BUTTON_COLOR_ACTIVE } else { BUTTON_COLOR_INACTIVE };
+            if !complete_redraw {
+                c.set_source_rgb(0.0, 0.0, 0.0);
+                c.rectangle(left_edge, bot - radius, button_width, top - bot + radius * 2.0);
+                c.fill().unwrap();
+            }
+            let color = if button.active { BUTTON_COLOR_ACTIVE } else { BUTTON_COLOR_INACTIVE };
             c.set_source_rgb(color, color, color);
             // draw box with rounded corners
             c.new_sub_path();
@@ -145,6 +173,25 @@ impl FunctionLayer {
             c.fill().unwrap();
             c.set_source_rgb(1.0, 1.0, 1.0);
             button.render(&c, left_edge, button_width);
+
+            button.changed = false;
+            modified_regions.push(ClipRect {
+                x1: DFR_HEIGHT as u16 - top as u16 - radius as u16,
+                y1: left_edge as u16,
+                x2: DFR_HEIGHT as u16 - bot as u16 + radius as u16,
+                y2: left_edge as u16 + button_width as u16
+            });
+        }
+
+        if complete_redraw {
+            vec![ClipRect {
+                x1: 0,
+                y1: 0,
+                x2: DFR_HEIGHT as u16,
+                y2: DFR_WIDTH as u16,
+            }]
+        } else {
+            modified_regions
         }
     }
 }
@@ -239,7 +286,7 @@ fn main() {
 
     let mut surface = ImageSurface::create(Format::ARgb32, DFR_HEIGHT, DFR_WIDTH).unwrap();
     let mut active_layer = config.ui.primary_layer as usize;
-    let layers = [
+    let mut layers = [
         FunctionLayer {
             buttons: vec![
                 Button::new_text("F1", Key::F1),
@@ -274,9 +321,12 @@ fn main() {
         }
     ];
 
-    let mut button_states = [vec![false; 12], vec![false; 12]];
-    let mut needs_redraw = true;
+    let mut needs_complete_redraw = true;
     let mut drm = DrmBackend::open_card().unwrap();
+    let fb_info = drm.fb_info().unwrap();
+    let pitch = fb_info.pitch();
+    let cpp = fb_info.bpp() / 8;
+
     let mut input_tb = Libinput::new_with_udev(Interface);
     let mut input_main = Libinput::new_with_udev(Interface);
     input_tb.udev_assign_seat("seat-touchbar").unwrap();
@@ -309,12 +359,25 @@ fn main() {
     let mut digitizer: Option<InputDevice> = None;
     let mut touches = HashMap::new();
     loop {
-        if needs_redraw {
-            needs_redraw = false;
-            layers[active_layer].draw(&surface, &button_states[active_layer]);
+        if needs_complete_redraw || layers[active_layer].buttons.iter().any(|b| b.changed) {
+            let clips = layers[active_layer].draw(&surface, needs_complete_redraw);
             let data = surface.data().unwrap();
-            drm.map().unwrap().as_mut()[..data.len()].copy_from_slice(&data);
-            drm.dirty(&[ClipRect{x1: 0, y1: 0, x2: DFR_HEIGHT as u16, y2: DFR_WIDTH as u16}]).unwrap();
+            let mut fb = drm.map().unwrap();
+
+            for clip in &clips {
+                let base_offset = clip.y1 as usize * pitch as usize + clip.x1 as usize * cpp as usize;
+                let len = (clip.x2 - clip.x1) as usize * cpp as usize;
+
+                for i in 0..(clip.y2 - clip.y1) {
+                    let offset = base_offset + i as usize * pitch as usize;
+                    let range = offset..(offset + len);
+                    fb.as_mut()[range.clone()].copy_from_slice(&data[range]);
+                }
+            }
+
+            drop(fb);
+            drm.dirty(&clips[..]).unwrap();
+            needs_complete_redraw = false;
         }
         poll(&mut [pollfd_tb, pollfd_main], TIMEOUT_MS).unwrap();
         input_tb.dispatch().unwrap();
@@ -336,7 +399,7 @@ fn main() {
                         };
                         if active_layer != new_layer {
                             active_layer = new_layer;
-                            needs_redraw = true;
+                            needs_complete_redraw = true;
                         }
                     }
                 },
@@ -351,9 +414,7 @@ fn main() {
                             let btn = (x / (DFR_WIDTH as f64 / layers[active_layer].buttons.len() as f64)) as u32;
                             if button_hit(layers[active_layer].buttons.len() as u32, btn, x, y) {
                                 touches.insert(dn.seat_slot(), (active_layer, btn));
-                                button_states[active_layer][btn as usize] = true;
-                                needs_redraw = true;
-                                toggle_key(&mut uinput, layers[active_layer].buttons[btn as usize].action, 1);
+                                layers[active_layer].buttons[btn as usize].set_active(&mut uinput, true);
                             }
                         },
                         TouchEvent::Motion(mtn) => {
@@ -365,22 +426,14 @@ fn main() {
                             let y = mtn.y_transformed(DFR_HEIGHT as u32);
                             let (layer, btn) = *touches.get(&mtn.seat_slot()).unwrap();
                             let hit = button_hit(layers[layer].buttons.len() as u32, btn, x, y);
-                            if button_states[layer][btn as usize] != hit {
-                                button_states[layer][btn as usize] = hit;
-                                needs_redraw = true;
-                                toggle_key(&mut uinput, layers[active_layer].buttons[btn as usize].action, hit as i32);
-                            }
+                            layers[layer].buttons[btn as usize].set_active(&mut uinput, hit);
                         },
                         TouchEvent::Up(up) => {
                             if !touches.contains_key(&up.seat_slot()) {
                                 continue;
                             }
                             let (layer, btn) = *touches.get(&up.seat_slot()).unwrap();
-                            if button_states[layer][btn as usize] {
-                                button_states[layer][btn as usize] = false;
-                                needs_redraw = true;
-                                toggle_key(&mut uinput, layers[active_layer].buttons[btn as usize].action, 0);
-                            }
+                            layers[layer].buttons[btn as usize].set_active(&mut uinput, false);
                         }
                         _ => {}
                     }
