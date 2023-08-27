@@ -22,7 +22,7 @@ fn read_attr(path: &Path, attr: &str) -> u32 {
 fn find_backlight() -> Result<PathBuf> {
     for entry in fs::read_dir("/sys/class/backlight/")? {
         let entry = entry?;
-        if entry.file_name().to_string_lossy().contains("display-pipe") {
+        if ["display-pipe", "appletb_backlight"].contains(&entry.file_name().to_str().unwrap_or("")) {
             return Ok(entry.path());
         }
     }
