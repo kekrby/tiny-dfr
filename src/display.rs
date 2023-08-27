@@ -92,7 +92,7 @@ fn try_open_card(path: &Path) -> Result<DrmBackend> {
     }
     let crtc = crtcinfo.get(0).ok_or(anyhow!("No crtcs found"))?;
     let fmt = DrmFourcc::Xrgb8888;
-    let db = card.create_dumb_buffer((64, disp_height.into()), fmt, 32)?;
+    let db = card.create_dumb_buffer((disp_width.into(), disp_height.into()), fmt, 32)?;
 
     let fb = card.add_framebuffer(&db, 24, 32)?;
     let plane = *card.plane_handles()?.get(0).ok_or(anyhow!("No planes found"))?;
