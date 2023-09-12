@@ -100,12 +100,40 @@ impl Button {
     }
 }
 
+#[repr(usize)]
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum LayerType {
+    Function,
+    Special,
+}
+
+#[derive(Deserialize)]
+struct UiConfig {
+    primary_layer: LayerType,
+    secondary_layer: LayerType,
+    font: String,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    ui: UiConfig,
+}
+
+impl Config {
+    fn from_file(path: &str) -> Result<Self> {
+        toml::from_str(&read_to_string(path)?)
+            .map_err(anyhow::Error::from)
+    }
+}
+
 struct FunctionLayer {
     buttons: Vec<Button>
 }
 
 impl FunctionLayer {
     fn draw(&mut self, surface: &ImageSurface, complete_redraw: bool) -> Vec<ClipRect> {
+        let config = Config::from_file("/etc/tiny-dfr.conf").unwrap();
         let c = Context::new(&surface).unwrap();
         let mut modified_regions = Vec::new();
         let height = surface.width();
@@ -121,7 +149,8 @@ impl FunctionLayer {
             c.set_source_rgb(0.0, 0.0, 0.0);
             c.paint().unwrap();
         }
-        c.select_font_face("sans-serif", FontSlant::Normal, FontWeight::Normal);
+        let font_style: &str = &config.ui.font;
+        c.select_font_face(font_style, FontSlant::Normal, FontWeight::Normal);
         c.set_font_size(32.0);
         for (i, button) in self.buttons.iter_mut().enumerate() {
             if !button.changed && !complete_redraw {
@@ -241,32 +270,6 @@ fn emit<F>(uinput: &mut UInputHandle<F>, ty: EventKind, code: u16, value: i32) w
 fn toggle_key<F>(uinput: &mut UInputHandle<F>, code: Key, value: i32) where F: AsRawFd {
     emit(uinput, EventKind::Key, code as u16, value);
     emit(uinput, EventKind::Synchronize, SynchronizeKind::Report as u16, 0);
-}
-
-#[repr(usize)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum LayerType {
-    Function,
-    Special,
-}
-
-#[derive(Deserialize)]
-struct UiConfig {
-    primary_layer: LayerType,
-    secondary_layer: LayerType,
-}
-
-#[derive(Deserialize)]
-struct Config {
-    ui: UiConfig,
-}
-
-impl Config {
-    fn from_file(path: &str) -> Result<Self> {
-        toml::from_str(&read_to_string(path)?)
-            .map_err(anyhow::Error::from)
-    }
 }
 
 fn main() {
