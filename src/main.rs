@@ -61,7 +61,8 @@ impl Button {
         }
     }
     fn new_svg(path: &'static str, action: Key) -> Button {
-        let svg = Loader::new().read_path(format!("/usr/share/tiny-dfr/{}.svg", path)).unwrap();
+        let config = Config::from_file("/etc/tiny-dfr.conf").unwrap();
+        let svg = Loader::new().read_path(format!("/usr/share/tiny-dfr/{}/{}.svg", config.ui.icon_pack, path)).unwrap();
         Button {
             action,
             active: false,
@@ -256,6 +257,7 @@ struct UiConfig {
     primary_layer: LayerType,
     secondary_layer: LayerType,
     font: String,
+    icon_pack: String,
 }
 
 #[derive(Deserialize)]
