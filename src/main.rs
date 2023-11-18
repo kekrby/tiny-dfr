@@ -513,7 +513,8 @@ fn real_main(drm: &mut DrmBackend) {
             match event {
                 Event::Device(DeviceEvent::Added(evt)) => {
                     let dev = evt.device();
-                    if dev.name().contains(" Touch Bar") {
+                    let name = dev.name();
+                    if name.contains(" Touch Bar") || name.contains("iBridge") {
                         digitizer = Some(dev);
                     }
                 },
