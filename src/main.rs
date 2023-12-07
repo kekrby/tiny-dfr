@@ -197,7 +197,7 @@ impl FunctionLayer {
     fn draw(&mut self, config: &Config, width: i32, height: i32, surface: &Surface, pixel_shift: (f64, f64), complete_redraw: bool) -> Vec<ClipRect> {
         let c = Context::new(&surface).unwrap();
         let mut modified_regions = if complete_redraw {
-            vec![ClipRect::new(0, 0, height as u16, width as u16)]
+            vec![ClipRect { x1: 0, y1: 0, x2: height as u16, y2: width as u16 }]
         } else {
             Vec::new()
         };
@@ -276,12 +276,12 @@ impl FunctionLayer {
             button.changed = false;
 
             if !complete_redraw {
-                modified_regions.push(ClipRect::new(
-                    height as u16 - top as u16 - radius as u16,
-                    left_edge as u16,
-                    height as u16 - bot as u16 + radius as u16,
-                    left_edge as u16 + button_width as u16
-                ));
+                modified_regions.push(ClipRect {
+                    x1: height as u16 - top as u16 - radius as u16,
+                    y1: left_edge as u16,
+                    x2: height as u16 - bot as u16 + radius as u16,
+                    y2: left_edge as u16 + button_width as u16
+                });
             }
         }
 
@@ -399,7 +399,7 @@ fn main() {
         }
     }
     drop(map);
-    drm.dirty(&[ClipRect::new(0, 0, height as u16, width as u16)]).unwrap();
+    drm.dirty(&[ClipRect { x1: 0, y1: 0, x2: height as u16, y2: width as u16 }]).unwrap();
     let mut sigset = SigSet::empty();
     sigset.add(Signal::SIGTERM);
     sigset.wait().unwrap();
