@@ -12,7 +12,7 @@ use std::{
 use cairo::{ImageSurface, Format, Context, Surface, Rectangle, FontFace, Antialias};
 use rsvg::{Loader, CairoRenderer, SvgHandle};
 use drm::control::ClipRect;
-use anyhow::{Error, Result};
+use anyhow::Result;
 use input::{
     Libinput, LibinputInterface, Device as InputDevice,
     event::{
@@ -348,17 +348,7 @@ fn load_font(name: &str) -> FontFace {
 }
 
 fn load_config(width: u16) -> (Config, [FunctionLayer; 2]) {
-    let mut base = toml::from_str::<ConfigProxy>(&read_to_string("/usr/share/tiny-dfr/config.toml").unwrap()).unwrap();
-    let user = read_to_string(USER_CFG_PATH).map_err::<Error, _>(|e| e.into())
-        .and_then(|r| Ok(toml::from_str::<ConfigProxy>(&r)?));
-    if let Ok(user) = user {
-        base.media_layer_default = user.media_layer_default.or(base.media_layer_default);
-        base.show_button_outlines = user.show_button_outlines.or(base.show_button_outlines);
-        base.enable_pixel_shift = user.enable_pixel_shift.or(base.enable_pixel_shift);
-        base.font_template = user.font_template.or(base.font_template);
-        base.media_layer_keys = user.media_layer_keys.or(base.media_layer_keys);
-        base.primary_layer_keys = user.primary_layer_keys.or(base.primary_layer_keys);
-    };
+    let base = toml::from_str::<ConfigProxy>(&read_to_string("./share/tiny-dfr/config.toml").unwrap()).unwrap();
     let media_layer = FunctionLayer::with_config(base.media_layer_keys.unwrap());
     let fkey_layer = FunctionLayer::with_config(base.primary_layer_keys.unwrap());
     let mut layers = if base.media_layer_default.unwrap(){ [media_layer, fkey_layer] } else { [fkey_layer, media_layer] };
